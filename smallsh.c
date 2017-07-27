@@ -18,6 +18,7 @@ void catchSIGINT(int signo)
 }
 
 char* removeNewline(char *str);
+void execute(char** argv);
 
 int main()
 {
@@ -35,10 +36,10 @@ int main()
     size_t MAX_LINE = 256;
 
 
-    // Init array of pointers to strings
-    for (int i = 0; i < MAX_LINE; i++) {
-        parsedArgs[i] = (char*)malloc(MAX_LINE);
-    }
+    // // Init array of pointers to strings
+    // for (int i = 0; i < MAX_LINE; i++) {
+    //     parsedArgs[i] = (char*)malloc(MAX_LINE);
+    // }
 
     while(1)
     {
@@ -67,7 +68,12 @@ int main()
                     tok = strtok(NULL, " ");
                     c++;
                 }
-
+                // Remove newline on last input and set index after last to NULL for exec
+                removeNewline(parsedArgs[c-1]);
+                parsedArgs[c] = (char*)0;
+                // printf("%s\n", parsedArgs[0]);
+                // printf("%s\n", parsedArgs[1]);
+                // printf("%s\n", parsedArgs[2]);
                 // Loop everything if comment
                 if (!strcmp(parsedArgs[0], "#") || !strcmp(&parsedArgs[0][0], "#")) {
                     continue;
@@ -122,9 +128,9 @@ int main()
             int childExitStatus = -5;
 
             spawnPid = fork();
-            printf("%d\n", spawnPid);
-
-
+            if (spawnPid == 0) {
+              execute(parsedArgs);
+            }
 
 
         }
@@ -144,6 +150,14 @@ int main()
     return 0;
 }
 
+
+void execute(char** argv) {
+  if (execvp(*argv, argv) < 0) {
+        printf("execvp failed\n");
+        exit(1);
+  }
+}
+
 // Helper function to remove a new line from character strings
 char* removeNewline(char *str) {
     // Search string for newline character
@@ -152,5 +166,7 @@ char* removeNewline(char *str) {
     if (p != NULL) *p = '\0';
     return str;
 }
+
+
 
 //

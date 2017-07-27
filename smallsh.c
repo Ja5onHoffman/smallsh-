@@ -71,9 +71,6 @@ int main()
                 // Remove newline on last input and set index after last to NULL for exec
                 removeNewline(parsedArgs[c-1]);
                 parsedArgs[c] = (char*)0;
-                // printf("%s\n", parsedArgs[0]);
-                // printf("%s\n", parsedArgs[1]);
-                // printf("%s\n", parsedArgs[2]);
                 // Loop everything if comment
                 if (!strcmp(parsedArgs[0], "#") || !strcmp(&parsedArgs[0][0], "#")) {
                     continue;
@@ -86,9 +83,6 @@ int main()
 
         }
 
-
-
-        removeNewline(parsedArgs[0]);
         // MARK: cd command
         if (!strcmp(parsedArgs[0], "cd")) {
             char currentDir[1024];
@@ -120,19 +114,25 @@ int main()
 
 
 
-            // MARK: exit command
+        // MARK: exit command
         } else if (!strcmp(parsedArgs[0], "exit")) {
-            printf("exit\n");
+
+          int childExitMethod;
+          pid_t childPid = wait(NULL);e
+          exit(0);
+
         } else {
             pid_t spawnPid = -5;
             int childExitStatus = -5;
 
+            // Is this leaving a zombie
             spawnPid = fork();
             if (spawnPid == 0) {
               execute(parsedArgs);
             }
 
-
+            // Wait to terminate
+            pid_t actualPid = waitpid(spawnPid, &childExitStatus, 0);
         }
     }
 // TAG: atexit() can clean up the child processes
@@ -150,7 +150,7 @@ int main()
     return 0;
 }
 
-
+// Execute args (taken from lecture slide)
 void execute(char** argv) {
   if (execvp(*argv, argv) < 0) {
         printf("execvp failed\n");

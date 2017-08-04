@@ -6,13 +6,16 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <time.h>
 #include <signal.h>
 #include <assert.h>
 
-
+#define STD_IN  0
+#define STD_OUT 1
+#define STD_ERR 2
 
 void catchSIGINT(int signo)
 {
@@ -30,10 +33,12 @@ void sigquit_handler (int sig) {
 }
 
 void getStatus(int *childExitMethod);
-
-
+void rdbg(char **args, int len, int *io, int *bg, char *in, char *out);
+void redirect(char *in, char *out, int io);
 char* removeNewline(char *str);
 void execute(char** argv);
+
+void traceParsedArgs(char** args);
 
 int main()
 {
@@ -60,6 +65,8 @@ int main()
     size_t MAX_LINE = 256;
     pid_t topPid = getpid();
     int childExitMethod;
+    int io, bg; // Flags for redirection and background
+    char in[256], out[256];
     // // Init array of pointers to strings
     // for (int i = 0; i < MAX_LINE; i++) {
     //     parsedArgs[i] = (char*)malloc(MAX_LINE);
@@ -68,6 +75,10 @@ int main()
     while(1) {
         // Get input from the user
         while(1) {
+            int c = 0;            // Reset counter
+            io = 0; bg = 0;   // Reset io and bg
+            memset(&in, 0, sizeof(in));  // Reset file descriptors
+            memset(&out, 0, sizeof(out));
             // Init array of pointers to strings
             for (int i = 0; i < MAX_LINE; i++) {
                 parsedArgs[i] = (char*)malloc(MAX_LINE);
@@ -76,13 +87,13 @@ int main()
             printf(": ");
             // Get a line from the user
             fflush(stdin);
+            fflush(stdout);
             numCharsEntered = getline(&lineEntered, &bufferSize, stdin);
             if (numCharsEntered == -1) {
                 clearerr(stdin);
             } else if (numCharsEntered > 2048) {
                 printf("Max characters exceeded\n");
             } else {
-                int c = 0;
                 char *tok = strtok(lineEntered, " ");
                 while(tok) {
                     // memcpy(&parsedArgs[c], tok, sizeof(tok) / sizeof(char));
@@ -97,75 +108,62 @@ int main()
                 if (!strcmp(parsedArgs[0], "#") || !strcmp(&parsedArgs[0][0], "#")) {
                     continue;
                 } else {
-                    break;
+                  rdbg(parsedArgs, c, &io, &bg, in, out);
+                  break;
                 }
             }
+            rdbg(parsedArgs, c, &io, &bg, in, out);
         }
 
-        // MARK: cd command
-        if (strcmp(parsedArgs[0], "cd") == 0) {
-          pid_t spawnPid = -5;
-          // int childExitMethod;
-          spawnPid = fork();
-          // If child run cd
-          if (spawnPid == 0) {
-            char currentDir[1024];
-            char *home = getenv("HOME");
-            // If no args go to $HOME
-            if (!parsedArgs[1]) {
-                chdir(home);
-                getcwd(currentDir, sizeof(currentDir));
-                printf("%s\n", currentDir);
-            } else {
-                int r;
-                removeNewline(parsedArgs[1]);
-                if (!chdir(parsedArgs[1])) {
-                  exit(1);
-                }
-            }
-            exit(0); // Successful exit
+        int spawnPid = -5;
+        spawnPid = fork();
+        if (spawnPid == 0) {
+          if (io) {
+            redirect(in, out, io);
+          }
+          // traceParsedArgs(parsedArgs);
+          if (strcmp(parsedArgs[0], "cd") == 0) {
+            // If child run cd
+              char currentDir[1024];
+              char *home = getenv("HOME");
+              // If no args go to $HOME
+              if (!parsedArgs[1]) {
+                  chdir(home);
+                  getcwd(currentDir, sizeof(currentDir));
+                  printf("%s\n", currentDir);
+              } else {
+                  int r;
+                  removeNewline(parsedArgs[1]);
+                  if (!chdir(parsedArgs[1])) {
+                    exit(1);
+                  }
+              }
+              exit(0); // Successful exit
 
-          // Else wait for cd to run
+          // MARK: status command
+          // This one does't run in background
+          } else if (!strcmp(parsedArgs[0], "status")) {
+            getStatus(&childExitMethod);
+            exit(0);
+          // MARK: exit command
+          } else if (!strcmp(parsedArgs[0], "exit")) {
+
           } else {
-            waitpid(spawnPid, &childExitMethod, 0);
+              execute(parsedArgs);
+
           }
 
-
-        // MARK: status command
-        // This one does't run in background
-        } else if (!strcmp(parsedArgs[0], "status")) {
-          getStatus(&childExitMethod);
-
-        // MARK: exit command
-        } else if (!strcmp(parsedArgs[0], "exit")) {
-
+          exit(0);
         } else {
-            pid_t spawnPid = -5;
-            spawnPid = fork();
-            if (spawnPid == 0) {
-              execute(parsedArgs);
-            } else {
-                waitpid(spawnPid, &childExitMethod, 0);
-                if (WIFSIGNALED(childExitMethod)) {
-                  getStatus(&childExitMethod);
-                }
-
+          // If not a background process block
+          if (!bg) {
+            waitpid(spawnPid, &childExitMethod, 0);
+            if (WIFSIGNALED(childExitMethod)) {
+              getStatus(&childExitMethod);
             }
+          }
         }
     }
-
-// TAG: atexit() can clean up the child processes
-
-
-    // printf("Allocated %zu bytes for the %d chars you entered.\n",
-    //         bufferSize, numCharsEntered);
-    // printf("Here is the raw entered line: \"%s\"\n", lineEntered);
-    // // Remove the trailing \n that getline adds
-    // lineEntered[strcspn(lineEntered, "\n")] = '\0';
-    // printf("Here is the cleaned line: \"%s\"\n", lineEntered);
-    // // Free the memory allocated by getline() or else memory leak
-    // free(lineEntered);
-    // lineEntered = NULL;
     return 0;
 }
 
@@ -196,5 +194,57 @@ void getStatus(int *childExitMethod) {
   }
 }
 
+void redirect(char *in, char *out, int io) {
+  int file_out, file_in;
+  int res;
+  switch(io) {
+    case 0:
+      break;
+    case 1:
+      file_out = open(out, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+      dup2(file_out, STD_OUT);
+    case 2:
+      file_in = open(out, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
+      dup2(file_in, STD_IN);
+  }
+}
 
-//
+
+// Parses input to handle background and redirection
+void rdbg(char **args, int len, int *io, int *bg, char *in, char *out) {
+  int clean = 0;
+  if (*args[len-1] == '&') {
+        *bg = 1; clean = 1;
+  }
+  for (int i = 0; i < len; i++) {
+    if (*args[i] == '>') {
+      *io = 1; clean = 1;
+      strcpy(out, args[i+1]);
+    } else if (*args[i] == '<') {
+      *io = 2; clean = 1;
+      strcpy(in,  args[i+1]);
+    }
+  }
+
+  // If input and output io flag = 3;
+  if (*out && *in) { *io = 3; };
+
+  if (clean) {
+    for (int i = 0; i < len; i++) {
+      char c = *args[i];
+      if (c == '>' || c == '<' || c == '&') {
+        for (; i < len; i++) {
+          args[i] = (char*)0;
+        }
+        break;
+      }
+    }
+  }
+}
+
+
+void traceParsedArgs(char** args) {
+  for (int i = 0; i < 3; i++) {
+    printf("%s\n", args[i]);
+  }
+}

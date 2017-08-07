@@ -32,12 +32,21 @@ void sigquit_handler (int sig) {
     if (parent_pid != self) _exit(0);
 }
 
+void sigchld_handler(int sig) {
+  char *childterminated = "Child terminated\n";
+  write(STDOUT_FILENO, childterminated,17);
+  int saved_errno = errno;
+  while (waitpid(-1, 0, WNOHANG) > 0) {}
+  errno = saved_errno;
+  // wait(&sig);
+}
+
 void getStatus(int *childExitMethod);
 void rdbg(char **args, int len, int *io, int *bg, char *in, char *out);
 void redirect(char *in, char *out, int io);
 char* removeNewline(char *str);
 void execute(char** argv);
-
+void waitbg(int childPid, int *childExitMethod);
 void traceParsedArgs(char** args);
 
 int main()
@@ -50,6 +59,11 @@ int main()
     sigfillset(&SIGINT_action.sa_mask);
     SIGINT_action.sa_flags = SA_RESTART;
     sigaction(SIGINT, &SIGINT_action, NULL);
+
+    // struct sigaction SIGCHLD_action = {0};
+    // SIGCHLD_action.sa_handler = &sigchld_handler;
+    // sigaction(SIGCHLD, &SIGCHLD_action, NULL);
+
 
     // struct sigaction SIGQUIT_action = {0};
     // SIGQUIT_action.sa_handler = sigquit_handler;
@@ -79,6 +93,10 @@ int main()
             io = 0; bg = 0;   // Reset io and bg
             memset(&in, 0, sizeof(in));  // Reset file descriptors
             memset(&out, 0, sizeof(out));
+
+            strcpy(&in, "/dev/null");
+            strcpy(&out, "/dev/null");
+
             // Init array of pointers to strings
             for (int i = 0; i < MAX_LINE; i++) {
                 parsedArgs[i] = (char*)malloc(MAX_LINE);
@@ -112,7 +130,7 @@ int main()
                   break;
                 }
             }
-            rdbg(parsedArgs, c, &io, &bg, in, out);
+            // rdbg(parsedArgs, c, &io, &bg, in, out);
         }
 
         int spawnPid = -5;
@@ -121,9 +139,9 @@ int main()
           if (io) {
             redirect(in, out, io);
           }
+
           // traceParsedArgs(parsedArgs);
           if (strcmp(parsedArgs[0], "cd") == 0) {
-            // If child run cd
               char currentDir[1024];
               char *home = getenv("HOME");
               // If no args go to $HOME
@@ -162,6 +180,10 @@ int main()
               getStatus(&childExitMethod);
             }
           }
+          // else {
+          //   // If bg loop until exit
+          //   // waitbg(spawnPid, &childExitMethod);
+          // }
         }
     }
     return 0;
@@ -195,6 +217,7 @@ void getStatus(int *childExitMethod) {
 }
 
 void redirect(char *in, char *out, int io) {
+
   int file_out, file_in;
   int res;
   switch(io) {
@@ -204,9 +227,17 @@ void redirect(char *in, char *out, int io) {
       file_out = open(out, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
       dup2(file_out, STD_OUT);
     case 2:
-      file_in = open(out, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
+      file_in = open(in, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
       dup2(file_in, STD_IN);
   }
+}
+
+void waitbg(int childPid, int *childExitMethod) {
+  int t = 0;
+  while (!t) {
+    t = waitpid(childPid, childExitMethod, WNOHANG);
+  }
+  printf("Trace: BG Exited\n");
 }
 
 
@@ -216,16 +247,16 @@ void rdbg(char **args, int len, int *io, int *bg, char *in, char *out) {
   if (*args[len-1] == '&') {
         *bg = 1; clean = 1;
   }
+
   for (int i = 0; i < len; i++) {
     if (*args[i] == '>') {
       *io = 1; clean = 1;
       strcpy(out, args[i+1]);
     } else if (*args[i] == '<') {
       *io = 2; clean = 1;
-      strcpy(in,  args[i+1]);
+      strcpy(in, args[i+1]);
     }
   }
-
   // If input and output io flag = 3;
   if (*out && *in) { *io = 3; };
 
@@ -241,7 +272,6 @@ void rdbg(char **args, int len, int *io, int *bg, char *in, char *out) {
     }
   }
 }
-
 
 void traceParsedArgs(char** args) {
   for (int i = 0; i < 3; i++) {

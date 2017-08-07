@@ -19,26 +19,38 @@
 
 void catchSIGINT(int signo)
 {
-    char* message = "SIGINT. Use CTRL-Z to Stop.\n";
-    write(STDOUT_FILENO, message, 28);
+    // char* message = "SIGINT. Use CTRL-Z to Stop.\n";
+    // write(STDOUT_FILENO, message, 28);
 }
 
 pid_t parent_pid;
+int bg = 0;
+int bgQuit = 0;
 
 void sigquit_handler (int sig) {
     assert(sig == SIGQUIT);
     pid_t self = getpid();
-    printf("pid: %d\n", self);
+    // printf("pid: %d\n", self);
     if (parent_pid != self) _exit(0);
 }
 
 void sigchld_handler(int sig) {
-  char *childterminated = "Child terminated\n";
-  write(STDOUT_FILENO, childterminated,17);
-  int saved_errno = errno;
-  while (waitpid(-1, 0, WNOHANG) > 0) {}
-  errno = saved_errno;
-  // wait(&sig);
+  // int status;
+  // int saved_errno = errno;
+  // waitpid(-1, &status, WNOHANG) > 0) {}
+  bgQuit = 1;
+  // errno = saved_errno;
+  // write(STDOUT_FILENO, &bg, 2);
+  // if (bg) {
+  //   char *backgroundpid = "background pid";
+  //   char *isdone = " is done: exit value";
+  //   pid_t p = getpid();
+  //   int s = WIFEXITED(status);
+  //   write(STDOUT_FILENO, backgroundpid,14);
+  //   write(STDOUT_FILENO, &p, sizeof(p));
+  //   write(STDOUT_FILENO, isdone, 20);
+  //   write(STDOUT_FILENO, &s, sizeof(s));
+  // }
 }
 
 void getStatus(int *childExitMethod);
@@ -46,23 +58,27 @@ void rdbg(char **args, int len, int *io, int *bg, char *in, char *out);
 void redirect(char *in, char *out, int io);
 char* removeNewline(char *str);
 void execute(char** argv);
-void waitbg(int childPid, int *childExitMethod);
+int waitbg(int childPid, int *childExitMethod);
 void traceParsedArgs(char** args);
+
 
 int main()
 {
+
+    parent_pid = getpid();
     // struct sigaction SIGINT_ignore = {0};
     // SIGINT_ignore.sa_handler = SIG_IGN;
     // sigaction(SIGINT, &SIGINT_ignore, NULL);
+
     struct sigaction SIGINT_action = {0};
     SIGINT_action.sa_handler = catchSIGINT;
     sigfillset(&SIGINT_action.sa_mask);
     SIGINT_action.sa_flags = SA_RESTART;
     sigaction(SIGINT, &SIGINT_action, NULL);
 
-    // struct sigaction SIGCHLD_action = {0};
-    // SIGCHLD_action.sa_handler = &sigchld_handler;
-    // sigaction(SIGCHLD, &SIGCHLD_action, NULL);
+    struct sigaction SIGCHLD_action = {0};
+    SIGCHLD_action.sa_handler = &sigchld_handler;
+    sigaction(SIGCHLD, &SIGCHLD_action, NULL);
 
 
     // struct sigaction SIGQUIT_action = {0};
@@ -78,29 +94,47 @@ int main()
     char* parsedArgs[512];
     size_t MAX_LINE = 256;
     pid_t topPid = getpid();
+    pid_t childPid;
+    pid_t bgPid = -5;
     int childExitMethod;
     int io, bg; // Flags for redirection and background
     char in[256], out[256];
+
     // // Init array of pointers to strings
     // for (int i = 0; i < MAX_LINE; i++) {
     //     parsedArgs[i] = (char*)malloc(MAX_LINE);
     // }
 
     while(1) {
-        // Get input from the user
         while(1) {
-            int c = 0;            // Reset counter
-            io = 0; bg = 0;   // Reset io and bg
-            memset(&in, 0, sizeof(in));  // Reset file descriptors
+            int c = 0;                    // Reset counter
+            io = 0;                       // Reset io and bg
+            memset(&in, 0, sizeof(in));   // Reset file descriptors
             memset(&out, 0, sizeof(out));
-
-            strcpy(&in, "/dev/null");
-            strcpy(&out, "/dev/null");
 
             // Init array of pointers to strings
             for (int i = 0; i < MAX_LINE; i++) {
                 parsedArgs[i] = (char*)malloc(MAX_LINE);
             }
+
+            if (bgQuit && bg) {
+              // Clean up bg process
+              waitpid(bgPid, &childExitMethod, 0);
+              printf("background pid %d is done: ", bgPid);
+              fflush(stdout);
+              int exitStatus = WEXITSTATUS(childExitMethod);
+              if (WIFEXITED(childExitMethod)) {
+                printf("exit value %d\n", exitStatus);
+              } else {
+                printf("terminated by a signal %d\n", exitStatus);
+              }
+                fflush(stdout);
+                // Reset bgquit and bg
+                bgQuit = 0;
+                bg = 0;
+            }
+
+
 
             printf(": ");
             // Get a line from the user
@@ -123,7 +157,8 @@ int main()
                 removeNewline(parsedArgs[c-1]);
                 parsedArgs[c] = (char*)0;
                 // Loop everything if comment
-                if (!strcmp(parsedArgs[0], "#") || !strcmp(&parsedArgs[0][0], "#")) {
+                // if (!strcmp(*parsedArgs, "#") || !strcmp(&parsedArgs[0][0], "#")) {
+                if (*parsedArgs[0] == '#') {
                     continue;
                 } else {
                   rdbg(parsedArgs, c, &io, &bg, in, out);
@@ -135,13 +170,17 @@ int main()
 
         int spawnPid = -5;
         spawnPid = fork();
+
         if (spawnPid == 0) {
           if (io) {
             redirect(in, out, io);
           }
 
-          // traceParsedArgs(parsedArgs);
-          if (strcmp(parsedArgs[0], "cd") == 0) {
+          if (bg) {
+            bgPid = getpid();
+          }
+
+          if (!strcmp(parsedArgs[0], "cd")) {
               char currentDir[1024];
               char *home = getenv("HOME");
               // If no args go to $HOME
@@ -149,29 +188,32 @@ int main()
                   chdir(home);
                   getcwd(currentDir, sizeof(currentDir));
                   printf("%s\n", currentDir);
+                  fflush(stdout);
               } else {
                   int r;
                   removeNewline(parsedArgs[1]);
-                  if (!chdir(parsedArgs[1])) {
-                    exit(1);
-                  }
+                  chdir(parsedArgs[1]);
+                  getcwd(currentDir, sizeof(currentDir));
+                  printf("%s\n", currentDir);
+                  fflush(stdout);
               }
-              exit(0); // Successful exit
 
           // MARK: status command
           // This one does't run in background
           } else if (!strcmp(parsedArgs[0], "status")) {
             getStatus(&childExitMethod);
-            exit(0);
           // MARK: exit command
           } else if (!strcmp(parsedArgs[0], "exit")) {
+            // int t = 0;
+            // while (!t) {
+            //   t = waitpid(-1, &childExitMethod, WNOHANG);
+            // }
+            // kill(parent_pid, SIGTERM);
+            raise(SIGTERM);
 
           } else {
               execute(parsedArgs);
-
           }
-
-          exit(0);
         } else {
           // If not a background process block
           if (!bg) {
@@ -179,13 +221,17 @@ int main()
             if (WIFSIGNALED(childExitMethod)) {
               getStatus(&childExitMethod);
             }
+          } else {
+            if (bg) {
+              bgPid = spawnPid;
+              printf("background pid is %d\n", spawnPid);
+              fflush(stdout);
+            }
+            // waitbg(spawnPid, &childExitMethod);
           }
-          // else {
-          //   // If bg loop until exit
-          //   // waitbg(spawnPid, &childExitMethod);
-          // }
         }
     }
+
     return 0;
 }
 
@@ -211,13 +257,14 @@ void getStatus(int *childExitMethod) {
   if (WIFEXITED(*childExitMethod)) {
     exitStatus = WEXITSTATUS(*childExitMethod);
     printf("exit value %d\n", exitStatus);
+    fflush(stdout);
   } else if (WIFSIGNALED(*childExitMethod)) {
     printf("terminated by signal %d\n", WTERMSIG(*childExitMethod));
+    fflush(stdout);
   }
 }
 
 void redirect(char *in, char *out, int io) {
-
   int file_out, file_in;
   int res;
   switch(io) {
@@ -229,23 +276,29 @@ void redirect(char *in, char *out, int io) {
     case 2:
       file_in = open(in, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
       dup2(file_in, STD_IN);
+    case 3:
+      file_in = open(in, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
+      dup2(file_in, STD_IN);
+      file_out = open(out, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+      dup2(file_out, STD_OUT);
   }
 }
 
-void waitbg(int childPid, int *childExitMethod) {
-  int t = 0;
-  while (!t) {
-    t = waitpid(childPid, childExitMethod, WNOHANG);
-  }
-  printf("Trace: BG Exited\n");
+int waitbg(int childPid, int *childExitMethod) {
+    int b = waitpid(childPid, childExitMethod, WNOHANG);
+    return b;
 }
 
 
 // Parses input to handle background and redirection
 void rdbg(char **args, int len, int *io, int *bg, char *in, char *out) {
-  int clean = 0;
-  if (*args[len-1] == '&') {
+  int clean = 0, ig = 0;
+  ig = (!strcmp(args[0], "status") || !strcmp(args[0], "exit") || !strcmp(args[0], "cd"));
+  if (*args[len-1] == '&' && !ig) {
         *bg = 1; clean = 1;
+        // i/o set to /dev/null in case no i/o inputs
+        strcpy(in, "/dev/null");
+        strcpy(out, "/dev/null");
   }
 
   for (int i = 0; i < len; i++) {

@@ -279,6 +279,7 @@ void redirect(char *in, char *out, int io) {
             } else {
                 dup2(file_out, STD_OUT);
             }
+            break;
         case 2:
             file_in = open(in, O_RDONLY, 0644);
             fcntl(file_in, F_SETFD, FD_CLOEXEC);
@@ -290,6 +291,7 @@ void redirect(char *in, char *out, int io) {
             } else {
                 dup2(file_in, STD_IN);
             }
+            break;
         case 3:
             file_in = open(in, O_RDONLY, 0644);
             file_out = open(out, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG);
@@ -297,6 +299,7 @@ void redirect(char *in, char *out, int io) {
             // Need to handle error here as well
             dup2(file_in, STD_IN);
             dup2(file_out, STD_OUT);
+            break;
     }
 }
 

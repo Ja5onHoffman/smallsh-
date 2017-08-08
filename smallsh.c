@@ -69,7 +69,7 @@ int main()
     // struct sigaction SIGINT_ignore = {0};
     // SIGINT_ignore.sa_handler = SIG_IGN;
     // sigaction(SIGINT, &SIGINT_ignore, NULL);
-
+    //
     struct sigaction SIGINT_action = {0};
     SIGINT_action.sa_handler = catchSIGINT;
     sigfillset(&SIGINT_action.sa_mask);
@@ -113,7 +113,8 @@ int main()
             memset(&out, 0, sizeof(out));
 
             // Init array of pointers to strings
-            for (int i = 0; i < MAX_LINE; i++) {
+            int i;
+            for (i = 0; i < MAX_LINE; i++) {
                 parsedArgs[i] = (char*)malloc(MAX_LINE);
             }
 
@@ -176,9 +177,9 @@ int main()
             redirect(in, out, io);
           }
 
-          if (bg) {
-            bgPid = getpid();
-          }
+          // if (bg) {
+          //   bgPid = getpid();
+          // }
 
           if (!strcmp(parsedArgs[0], "cd")) {
               char currentDir[1024];
@@ -301,7 +302,8 @@ void rdbg(char **args, int len, int *io, int *bg, char *in, char *out) {
         strcpy(out, "/dev/null");
   }
 
-  for (int i = 0; i < len; i++) {
+  int i;
+  for (i = 0; i < len; i++) {
     if (*args[i] == '>') {
       *io = 1; clean = 1;
       strcpy(out, args[i+1]);
@@ -314,7 +316,8 @@ void rdbg(char **args, int len, int *io, int *bg, char *in, char *out) {
   if (*out && *in) { *io = 3; };
 
   if (clean) {
-    for (int i = 0; i < len; i++) {
+    int i;
+    for (i = 0; i < len; i++) {
       char c = *args[i];
       if (c == '>' || c == '<' || c == '&') {
         for (; i < len; i++) {

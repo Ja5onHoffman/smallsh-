@@ -275,7 +275,7 @@ void redirect(char *in, char *out, int io) {
             file_out = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             fcntl(file_out, F_SETFD, FD_CLOEXEC);
             if (file_out < 0) {
-                return;
+                exit(1);
             } else {
                 dup2(file_out, STD_OUT);
             }
@@ -287,7 +287,7 @@ void redirect(char *in, char *out, int io) {
                 printf("cannot open file for input\n");
                 // close(file_in);
                 fflush(stdout);
-                return;
+                exit(1);
             } else {
                 dup2(file_in, STD_IN);
             }

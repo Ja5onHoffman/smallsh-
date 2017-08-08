@@ -330,7 +330,8 @@ void rdbg(char **args, int len, int *io, int *bg, char *in, char *out) {
 }
 
 void traceParsedArgs(char** args) {
-  for (int i = 0; i < 3; i++) {
+  int i;
+  for (i = 0; i < 3; i++) {
     printf("%s\n", args[i]);
   }
 }

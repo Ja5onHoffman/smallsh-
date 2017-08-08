@@ -266,21 +266,32 @@ void getStatus(int *childExitMethod) {
 }
 
 void redirect(char *in, char *out, int io) {
-  int file_out, file_in;
+  int file_out = 0, file_in = 0;
   int res;
   switch(io) {
     case 0:
       break;
     case 1:
-      file_out = open(out, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+      file_out = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      if (file_out < 0) {
+        exit(1);
+      }
       dup2(file_out, STD_OUT);
     case 2:
-      file_in = open(in, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
+      file_in = open(in, O_RDONLY, 0644);
+      printf("%d\n", file_in);
+      if (file_in < 0) {
+        printf("cannot open file for input\n");
+        fflush(stdout);
+        exit(1);
+      }
       dup2(file_in, STD_IN);
     case 3:
-      file_in = open(in, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
+      file_in = open(in, O_RDONLY, 0644);
+      file_out = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+      // Need to handle error here as well
       dup2(file_in, STD_IN);
-      file_out = open(out, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
       dup2(file_out, STD_OUT);
   }
 }
